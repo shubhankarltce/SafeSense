@@ -4,3 +4,4 @@ requests
 uvicorn
 dotenv
 websockets
+aiohttp==3.9.1
