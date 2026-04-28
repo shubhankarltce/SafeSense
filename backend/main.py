@@ -131,35 +131,68 @@ app.include_router(evacuation.router, prefix="/api")
 # --- WebSocket Endpoint ---
 
 import asyncio
+import random
+
+ZONES = ["zone_a", "zone_b", "zone_c", "zone_d", "zone_e", "zone_f"]
+INCIDENT_TYPES = ["fire", "medical", "panic"]
 
 @app.websocket("/ws/dashboard")
 async def websocket_dashboard(websocket: WebSocket):
-    print("🔥 WS ROUTE HIT")   # DEBUG
-
     await websocket.accept()
+    print("🔥 DEMO MODE STARTED")
 
-    print("✅ WS CONNECTED")   # DEBUG
+    while True:
+        zone = random.choice(ZONES)
+        incident = random.choice(INCIDENT_TYPES)
 
-    try:
-        while True:
-            await websocket.send_json({
-                "type": "test",
-                "message": "SafeSense Live"
-            })
-            await asyncio.sleep(2)
-    except Exception as e:
-        print("❌ WS ERROR:", e)
+        # 1. Send INCIDENT EVENT
+        await websocket.send_json({
+            "type": "incident",
+            "zone": zone,
+            "incident_type": incident,
+            "severity": "high",
+            "message": f"{incident.upper()} detected in {zone}"
+        })
+
+        # 2. Send ZONE UPDATE (danger)
+        await websocket.send_json({
+            "type": "zone_update",
+            "zone": zone,
+            "status": "danger"
+        })
+
+        # 3. Send CHECKLIST
+        await websocket.send_json({
+            "type": "checklist",
+            "items": [
+                "Evacuate affected zone",
+                "Alert emergency services",
+                "Guide guests to exits"
+            ]
+        })
+
+        await asyncio.sleep(6)
+
+        # 4. Reset zone to safe
+        await websocket.send_json({
+            "type": "zone_update",
+            "zone": zone,
+            "status": "safe"
+        })
+
+        await asyncio.sleep(4)
 
 # --- Static Files and Root Endpoint ---
 
 # Mount the 'static' directory from the frontend to serve CSS, JS, etc.
-#app.mount("/public", StaticFiles(directory=FRONTEND_DIR), name="static")
-"""
+app.mount("/static", StaticFiles(directory=FRONTEND_DIR), name="static")
+
 @app.get("/")
 async def read_index():
-    index_path = os.path.join(FRONTEND_DIR, "index.html")
+    """Serve the main index.html file for the root URL."""
+    index_path = os.path.join(FRONTEND_DIR, "public", "index.html")
     return FileResponse(index_path)
-"""
+
 @app.get("/api/health")
 async def health_check():
     """A simple health check endpoint to confirm the API is running."""
