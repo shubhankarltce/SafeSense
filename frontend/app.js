@@ -2,7 +2,9 @@ document.addEventListener('DOMContentLoaded', () => {
     console.log('SafeSense Dashboard Initializing...');
 
     const wsProtocol = window.location.protocol === 'https' ? 'wss' : 'ws';
-    const wsUrl = `${wsProtocol}://${window.location.host}/ws/dashboard`;
+    const wsUrl = window.location.hostname === "localhost"
+        ? "ws://localhost:8000/ws/dashboard"
+        : `wss://${window.location.host}/ws/dashboard`;
 
     let socket;
 
