@@ -153,14 +153,13 @@ async def websocket_dashboard(websocket: WebSocket):
 # --- Static Files and Root Endpoint ---
 
 # Mount the 'static' directory from the frontend to serve CSS, JS, etc.
-app.mount("/static", StaticFiles(directory=FRONTEND_DIR), name="static")
-
+#app.mount("/public", StaticFiles(directory=FRONTEND_DIR), name="static")
+"""
 @app.get("/")
 async def read_index():
-    """Serve the main index.html file for the root URL."""
     index_path = os.path.join(FRONTEND_DIR, "index.html")
     return FileResponse(index_path)
-
+"""
 @app.get("/api/health")
 async def health_check():
     """A simple health check endpoint to confirm the API is running."""
