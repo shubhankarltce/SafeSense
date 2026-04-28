@@ -1,0 +1,737 @@
+{
+    "project": {
+        "name": "SafeSense",
+        "tagline": "AI-powered real-time emergency detection and coordinated response system for hospitality environments",
+        "version": "1.0.0",
+        "domain": "Hospitality — Hotels & Restaurants",
+        "hackathon_problem": "Emergency Response and Crisis Coordination in Hospitality",
+        "pitch": "SafeSense is not just a surveillance system — it is a real-time decision engine for emergency response. It detects danger before humans do, alerts the right people instantly, and guides staff with voice instructions so no one has to think during a crisis."
+    },
+    "tech_stack": {
+        "ai_detection": {
+            "language": "Python 3.10+",
+            "libraries": [
+                "ultralytics (YOLOv8)",
+                "opencv-python",
+                "numpy",
+                "torch",
+                "torchvision"
+            ],
+            "tracking": [
+                "deep_sort_realtime",
+                "filterpy"
+            ],
+            "model": "YOLOv8n or YOLOv8s (custom fine-tuned for fire, smoke, person_down)",
+            "input": "Pre-recorded CCTV video files (MP4/AVI) or RTSP live stream"
+        },
+        "backend": {
+            "framework": "FastAPI (Python)",
+            "websocket": "FastAPI WebSockets (native)",
+            "database": "SQLite (for incident logs) via SQLAlchemy",
+            "notifications": "Firebase Admin SDK (FCM push notifications)",
+            "voice": "gTTS (Google Text-to-Speech) or pyttsx3 for offline",
+            "pa_trigger": "HTTP POST to PA system endpoint or local audio playback via playsound",
+            "environment": "Python-dotenv for env vars"
+        },
+        "frontend": {
+            "framework": "React.js 18",
+            "state_management": "Zustand or useState/useContext",
+            "websocket_client": "native WebSocket API",
+            "ui_library": "TailwindCSS + shadcn/ui",
+            "charts": "Recharts (for guest count graphs)",
+            "icons": "lucide-react",
+            "notifications_ui": "react-hot-toast",
+            "maps_floorplan": "SVG-based custom floor map component"
+        },
+        "deployment": {
+            "ai_backend": "Local edge server (laptop/Raspberry Pi)",
+            "frontend": "Vite dev server (localhost:5173)",
+            "backend_api": "Uvicorn (localhost:8000)",
+            "offline_mode": true,
+            "optional_cloud_sync": "Firebase Firestore"
+        }
+    },
+    "system_architecture": {
+        "overview": "3-Layer pipeline: DETECT → ALERT → COORDINATE",
+        "layers": {
+            "layer_1_detect": {
+                "label": "DETECT",
+                "description": "AI video analysis on CCTV feeds using YOLOv8",
+                "input": "Video stream (file or RTSP)",
+                "process": [
+                    "Read frame from video stream using OpenCV",
+                    "Run YOLOv8 inference on each frame",
+                    "Apply confidence threshold (>= 0.60)",
+                    "Validate detection across 5 consecutive frames (multi-frame validation)",
+                    "For crowd_panic: combine optical flow + density spike + motion direction (need 2 of 3)",
+                    "For person_down: check bounding box aspect ratio + no movement for 30 frames",
+                    "For fire/smoke: persistent detection + optional color heuristic (orange/red regions)",
+                    "On confirmed detection: emit event with metadata"
+                ],
+                "detection_classes": {
+                    "fire_smoke": {
+                        "method": "YOLOv8 object detection",
+                        "validation": "5 consistent frames + color heuristic",
+                        "confidence_threshold": 0.65
+                    },
+                    "person_down": {
+                        "method": "Pose estimation OR bounding box aspect ratio check",
+                        "validation": "No movement for 30+ frames",
+                        "confidence_threshold": 0.60
+                    },
+                    "crowd_panic": {
+                        "method": "Optical flow spike + density change + motion vector direction",
+                        "validation": "At least 2 of 3 signals must trigger",
+                        "confidence_threshold": 0.60
+                    },
+                    "hazard_general": {
+                        "method": "YOLOv8 custom class",
+                        "validation": "5 consistent frames",
+                        "confidence_threshold": 0.60
+                    }
+                },
+                "guest_tracking": {
+                    "method": "DeepSORT object tracking",
+                    "output": "Unique person ID per zone, entry/exit timestamps, count per zone"
+                },
+                "output": "JSON event payload sent to backend via HTTP POST or WebSocket"
+            },
+            "layer_2_alert": {
+                "label": "ALERT",
+                "description": "Multi-channel real-time alert dissemination",
+                "trigger": "Confirmed detection event from Layer 1",
+                "channels": {
+                    "push_notification": {
+                        "service": "Firebase Cloud Messaging (FCM)",
+                        "targets": "Staff mobile devices (role-based)",
+                        "payload": {
+                            "title": "EMERGENCY ALERT — SafeSense",
+                            "body": "Fire detected at Zone B, Floor 2",
+                            "data": {
+                                "zone": "Zone B",
+                                "floor": "Floor 2",
+                                "type": "fire_smoke",
+                                "severity": "critical",
+                                "timestamp": "ISO8601"
+                            }
+                        }
+                    },
+                    "pa_system": {
+                        "method": "Audio file playback or HTTP trigger to PA hardware",
+                        "message_template": "Attention. Emergency detected at {zone}, {floor}. Please follow staff instructions immediately.",
+                        "voice_engine": "gTTS (pre-generated MP3 per scenario)"
+                    },
+                    "role_based_alerts": {
+                        "roles": {
+                            "security": {
+                                "alert_type": "critical",
+                                "info": "Exact zone, detection type, guest count in zone"
+                            },
+                            "floor_manager": {
+                                "alert_type": "high",
+                                "info": "Zone status, evacuation checklist triggered"
+                            },
+                            "general_staff": {
+                                "alert_type": "medium",
+                                "info": "Instructions only — where to go, what to do"
+                            },
+                            "admin_dashboard": {
+                                "alert_type": "all",
+                                "info": "Full incident details + live feed"
+                            }
+                        }
+                    }
+                },
+                "priority_levels": {
+                    "low": "Unusual activity detected — monitor",
+                    "medium": "Possible emergency — staff on standby",
+                    "high": "Emergency confirmed — begin response",
+                    "critical": "Immediate evacuation required"
+                }
+            },
+            "layer_3_coordinate": {
+                "label": "COORDINATE",
+                "description": "Decision support, live visualization, voice guidance",
+                "components": {
+                    "voice_assistant": {
+                        "trigger": "On alert dispatch",
+                        "engine": "gTTS or Web Speech API",
+                        "context_aware": true,
+                        "example_messages": [
+                            "Fire confirmed on Floor 2, Zone B. Exit C is clear. Guide guests to stairwell 2 immediately.",
+                            "Person down detected in Lobby Zone A. Medical team report to Zone A now.",
+                            "Crowd panic detected in dining area. Security proceed to Zone D. All other staff hold positions."
+                        ],
+                        "message_construction": "Template-based with live zone data injected at runtime"
+                    },
+                    "live_dashboard": {
+                        "tech": "React.js + WebSocket",
+                        "update_frequency": "Real-time (on event)",
+                        "panels": [
+                            "Floor plan with zone color coding (safe=green, warning=yellow, danger=red)",
+                            "Live CCTV feed thumbnails per zone",
+                            "Active incident panel (type, time, zone, severity)",
+                            "Guest count per zone (live tracker)",
+                            "Staff status board (notified/responding/completed)",
+                            "Auto-generated checklist panel",
+                            "Incident timeline log"
+                        ]
+                    },
+                    "auto_checklist": {
+                        "trigger": "Per detection type",
+                        "checklists": {
+                            "fire_smoke": [
+                                "Call fire department (dial 101)",
+                                "Activate fire suppression if available",
+                                "Evacuate affected floor immediately",
+                                "Ensure elevators are not used",
+                                "Account for all guests in zone",
+                                "Security to hold exits open"
+                            ],
+                            "person_down": [
+                                "Call medical emergency (dial 108)",
+                                "Clear area around person",
+                                "Do not move person unless danger present",
+                                "Staff trained in first aid to respond",
+                                "Log incident with timestamp"
+                            ],
+                            "crowd_panic": [
+                                "Security to affected zone immediately",
+                                "PA announcement for calm",
+                                "Open all available exits",
+                                "Floor manager to visible position",
+                                "Begin controlled evacuation"
+                            ]
+                        }
+                    },
+                    "smart_evacuation": {
+                        "description": "Dynamic safe path suggestion based on live zone danger status",
+                        "logic": "Mark dangerous zones → calculate shortest safe path from each zone to exit → display on floor map",
+                        "visual": "Animated arrows on SVG floor map showing evacuation routes"
+                    },
+                    "incident_log": {
+                        "storage": "SQLite via SQLAlchemy",
+                        "fields": [
+                            "incident_id",
+                            "timestamp",
+                            "zone",
+                            "floor",
+                            "detection_type",
+                            "severity",
+                            "guest_count_affected",
+                            "response_time",
+                            "resolved_at",
+                            "staff_assigned"
+                        ]
+                    }
+                }
+            }
+        }
+    },
+    "api_routes": {
+        "base_url": "http://localhost:8000",
+        "endpoints": {
+            "detection": {
+                "POST /api/detection/event": {
+                    "description": "Receive detection event from AI pipeline",
+                    "body": {
+                        "zone": "string",
+                        "floor": "string",
+                        "detection_type": "fire_smoke | person_down | crowd_panic | hazard",
+                        "confidence": "float",
+                        "frame_count": "int",
+                        "guest_count": "int",
+                        "timestamp": "ISO8601 string"
+                    },
+                    "response": {
+                        "status": "triggered | ignored",
+                        "incident_id": "string",
+                        "alert_sent": "boolean"
+                    }
+                },
+                "GET /api/detection/status": {
+                    "description": "Get current detection pipeline status",
+                    "response": {
+                        "active": "boolean",
+                        "cameras_online": "int",
+                        "last_event": "ISO8601"
+                    }
+                }
+            },
+            "incidents": {
+                "GET /api/incidents": {
+                    "description": "Get all logged incidents",
+                    "query_params": [
+                        "limit",
+                        "zone",
+                        "type",
+                        "from_date",
+                        "to_date"
+                    ],
+                    "response": "Array of incident objects"
+                },
+                "GET /api/incidents/{incident_id}": {
+                    "description": "Get single incident details",
+                    "response": "Single incident object with full timeline"
+                },
+                "PATCH /api/incidents/{incident_id}/resolve": {
+                    "description": "Mark incident as resolved",
+                    "body": {
+                        "resolved_by": "string",
+                        "notes": "string"
+                    },
+                    "response": {
+                        "status": "resolved",
+                        "resolved_at": "ISO8601"
+                    }
+                }
+            },
+            "zones": {
+                "GET /api/zones": {
+                    "description": "Get all zones with current status",
+                    "response": "Array of zone objects with status and guest count"
+                },
+                "GET /api/zones/{zone_id}/status": {
+                    "description": "Get specific zone status",
+                    "response": {
+                        "zone_id": "string",
+                        "status": "safe | warning | danger",
+                        "guest_count": "int",
+                        "last_updated": "ISO8601"
+                    }
+                },
+                "PATCH /api/zones/{zone_id}/status": {
+                    "description": "Manually override zone status",
+                    "body": {
+                        "status": "safe | warning | danger",
+                        "updated_by": "string"
+                    }
+                }
+            },
+            "alerts": {
+                "POST /api/alerts/manual": {
+                    "description": "Manually trigger an alert (panic button)",
+                    "body": {
+                        "zone": "string",
+                        "type": "fire | medical | panic | custom",
+                        "triggered_by": "string (staff ID)"
+                    }
+                },
+                "GET /api/alerts/history": {
+                    "description": "Get alert history",
+                    "response": "Array of alert objects"
+                }
+            },
+            "staff": {
+                "GET /api/staff": {
+                    "description": "Get all staff and their current status",
+                    "response": "Array of staff objects"
+                },
+                "PATCH /api/staff/{staff_id}/status": {
+                    "description": "Update staff response status",
+                    "body": {
+                        "status": "notified | responding | on_scene | completed"
+                    }
+                }
+            },
+            "websocket": {
+                "WS /ws/dashboard": {
+                    "description": "WebSocket connection for live dashboard updates",
+                    "events_emitted": [
+                        "zone_status_update",
+                        "new_incident",
+                        "guest_count_update",
+                        "alert_triggered",
+                        "staff_status_update",
+                        "checklist_update"
+                    ]
+                }
+            },
+            "evacuation": {
+                "GET /api/evacuation/routes": {
+                    "description": "Get current safe evacuation routes based on zone status",
+                    "response": {
+                        "safe_zones": [
+                            "array of zone IDs"
+                        ],
+                        "danger_zones": [
+                            "array of zone IDs"
+                        ],
+                        "routes": [
+                            {
+                                "from_zone": "string",
+                                "to_exit": "string",
+                                "path": [
+                                    "array of zone IDs forming path"
+                                ],
+                                "status": "clear | blocked"
+                            }
+                        ]
+                    }
+                }
+            }
+        }
+    },
+    "frontend_screens": {
+        "screen_1_dashboard": {
+            "name": "Main Incident Dashboard",
+            "route": "/dashboard",
+            "layout": "Full-screen dark theme, grid layout",
+            "sections": {
+                "top_bar": {
+                    "content": [
+                        "SafeSense logo",
+                        "Current time",
+                        "System status indicator (green/red dot)",
+                        "Manual panic button (red, top right)"
+                    ],
+                    "height": "60px",
+                    "background": "#0f172a"
+                },
+                "left_panel": {
+                    "width": "30%",
+                    "components": [
+                        {
+                            "name": "Active Incidents Card",
+                            "style": "Red glowing border when active, grey when none",
+                            "fields": [
+                                "Incident type icon",
+                                "Zone + Floor",
+                                "Time elapsed",
+                                "Severity badge",
+                                "Status (active/resolved)"
+                            ]
+                        },
+                        {
+                            "name": "Staff Status Board",
+                            "style": "List of staff with colored status pills",
+                            "statuses": [
+                                "Notified (yellow)",
+                                "Responding (blue)",
+                                "On Scene (orange)",
+                                "Completed (green)"
+                            ]
+                        },
+                        {
+                            "name": "Alert History",
+                            "style": "Scrollable timeline list",
+                            "fields": [
+                                "Time",
+                                "Type icon",
+                                "Zone",
+                                "Severity"
+                            ]
+                        }
+                    ]
+                },
+                "center_panel": {
+                    "width": "45%",
+                    "components": [
+                        {
+                            "name": "Floor Plan Map",
+                            "style": "SVG interactive floor map",
+                            "zones": "Color-coded: green (safe), yellow (warning), red (danger)",
+                            "features": [
+                                "Animated evacuation route arrows",
+                                "Zone labels with guest count",
+                                "Pulsing animation on danger zones",
+                                "Clickable zones for detail popup"
+                            ]
+                        },
+                        {
+                            "name": "Guest Count Bar",
+                            "style": "Horizontal bar below map",
+                            "content": "Total guests tracked: N | Safe: N | In danger zones: N"
+                        }
+                    ]
+                },
+                "right_panel": {
+                    "width": "25%",
+                    "components": [
+                        {
+                            "name": "CCTV Feed Grid",
+                            "style": "2x2 grid of camera thumbnails",
+                            "features": [
+                                "Red border on cameras with active detection",
+                                "Camera zone label",
+                                "Timestamp overlay"
+                            ]
+                        },
+                        {
+                            "name": "Auto Checklist",
+                            "style": "Checklist card with checkboxes",
+                            "features": [
+                                "Auto-populates on incident",
+                                "Staff can check off items",
+                                "Progress bar at top"
+                            ]
+                        }
+                    ]
+                }
+            },
+            "color_theme": {
+                "background": "#0f172a",
+                "surface": "#1e293b",
+                "safe": "#22c55e",
+                "warning": "#f59e0b",
+                "danger": "#ef4444",
+                "text_primary": "#f8fafc",
+                "text_secondary": "#94a3b8",
+                "accent": "#3b82f6"
+            }
+        },
+        "screen_2_zone_detail": {
+            "name": "Zone Detail View",
+            "route": "/zone/:zone_id",
+            "trigger": "Click on zone in floor map",
+            "content": [
+                "Zone name + current status badge",
+                "Live CCTV feed for that zone (full width)",
+                "Guest count with individual tracking dots",
+                "Detection events in this zone (timeline)",
+                "Assigned staff list",
+                "Manual zone status override button"
+            ]
+        },
+        "screen_3_incident_log": {
+            "name": "Incident Log",
+            "route": "/incidents",
+            "content": [
+                "Filterable table of all incidents",
+                "Columns: ID, Time, Zone, Type, Severity, Duration, Resolved By",
+                "Export to PDF button",
+                "Click row to see full incident timeline",
+                "Charts: incidents by type (pie), incidents over time (line)"
+            ]
+        },
+        "screen_4_staff_app": {
+            "name": "Staff Mobile View",
+            "route": "/staff",
+            "description": "Simplified mobile-first view for field staff",
+            "content": [
+                "Current emergency alert card (large, high contrast)",
+                "Voice instruction playback button",
+                "My assigned tasks checklist",
+                "Zone navigation guide (where to go)",
+                "SOS / Panic button",
+                "Mark task complete button"
+            ],
+            "design": "Mobile-first, large text, high contrast, minimal clutter"
+        },
+        "screen_5_settings": {
+            "name": "System Settings",
+            "route": "/settings",
+            "content": [
+                "Camera stream configuration (RTSP URLs)",
+                "Staff roster management",
+                "Alert thresholds configuration",
+                "FCM token registration",
+                "Floor plan upload and zone definition",
+                "Test alert button"
+            ]
+        }
+    },
+    "visual_design_system": {
+        "theme": "Dark mode only",
+        "font": "Inter (Google Fonts)",
+        "font_sizes": {
+            "heading_1": "2rem",
+            "heading_2": "1.5rem",
+            "body": "0.875rem",
+            "label": "0.75rem"
+        },
+        "colors": {
+            "bg_primary": "#0f172a",
+            "bg_surface": "#1e293b",
+            "bg_elevated": "#334155",
+            "safe_green": "#22c55e",
+            "warning_amber": "#f59e0b",
+            "danger_red": "#ef4444",
+            "info_blue": "#3b82f6",
+            "text_primary": "#f8fafc",
+            "text_muted": "#94a3b8",
+            "border": "#334155"
+        },
+        "animations": {
+            "danger_zone_pulse": "Infinite red glow pulse (CSS keyframes)",
+            "evacuation_arrows": "Moving dash animation along SVG path",
+            "alert_flash": "Brief full-screen red flash on new critical alert",
+            "notification_slide": "Slide-in from top right"
+        },
+        "component_styles": {
+            "severity_badges": {
+                "low": "bg-slate-500 text-white rounded-full px-2 py-1",
+                "medium": "bg-amber-500 text-white rounded-full px-2 py-1",
+                "high": "bg-orange-500 text-white rounded-full px-2 py-1",
+                "critical": "bg-red-600 text-white rounded-full px-2 py-1 animate-pulse"
+            },
+            "zone_colors": {
+                "safe": "fill: #22c55e, stroke: #16a34a",
+                "warning": "fill: #f59e0b, stroke: #d97706",
+                "danger": "fill: #ef4444, stroke: #dc2626, filter: drop-shadow(0 0 8px #ef4444)"
+            }
+        }
+    },
+    "demo_flow": {
+        "input": "Pre-recorded MP4 video (fire scene + person down scene)",
+        "steps": [
+            "1. Video starts playing through AI pipeline",
+            "2. YOLOv8 detects fire in Zone B, Floor 2 — 5 frame confirmation",
+            "3. Backend receives event → dispatches FCM notification",
+            "4. Dashboard zone B turns RED with pulsing animation",
+            "5. Voice assistant plays: 'Fire confirmed on Floor 2, Zone B. Exit C is clear.'",
+            "6. Auto checklist populates for fire scenario",
+            "7. Evacuation route arrows animate on floor map",
+            "8. Staff status board shows Security as 'Notified'",
+            "9. Guest count in Zone B shown as isolated",
+            "10. Incident logged in timeline"
+        ],
+        "demo_duration": "90 seconds",
+        "videos_needed": [
+            "fire_smoke_test.mp4 — corridor with fire/smoke",
+            "person_down_test.mp4 — lobby with fallen person",
+            "crowd_panic_test.mp4 — dining area with rapid crowd movement"
+        ]
+    },
+    "folder_structure": {
+        "root": "safesense/",
+        "ai_module": {
+            "path": "safesense/ai/",
+            "files": [
+                "detector.py — YOLOv8 inference loop",
+                "tracker.py — DeepSORT tracking",
+                "crowd_analyzer.py — optical flow + density analysis",
+                "event_emitter.py — sends detection events to backend",
+                "models/ — YOLOv8 weights files",
+                "test_videos/ — demo input videos"
+            ]
+        },
+        "backend": {
+            "path": "safesense/backend/",
+            "files": [
+                "main.py — FastAPI app entry point",
+                "routers/ — detection.py, incidents.py, zones.py, alerts.py, staff.py, evacuation.py",
+                "models/ — SQLAlchemy DB models",
+                "services/ — alert_service.py, voice_service.py, fcm_service.py, checklist_service.py",
+                "websocket/ — ws_manager.py",
+                "database.py — SQLite connection",
+                ".env — API keys and config"
+            ]
+        },
+        "frontend": {
+            "path": "safesense/frontend/",
+            "files": [
+                "src/pages/ — Dashboard.jsx, ZoneDetail.jsx, IncidentLog.jsx, StaffView.jsx, Settings.jsx",
+                "src/components/ — FloorMap.jsx, CCTVGrid.jsx, IncidentCard.jsx, Checklist.jsx, StaffBoard.jsx, AlertBanner.jsx, EvacuationRoutes.jsx",
+                "src/hooks/ — useWebSocket.js, useAlerts.js",
+                "src/store/ — dashboardStore.js (Zustand)",
+                "src/utils/ — voicePlayer.js, zoneHelpers.js",
+                "src/assets/ — floor_plan.svg, alert_sounds/"
+            ]
+        }
+    },
+    "environment_variables": {
+        "FIREBASE_SERVER_KEY": "FCM server key from Firebase Console",
+        "FIREBASE_PROJECT_ID": "Firebase project ID",
+        "CAMERA_STREAM_URLS": "Comma-separated RTSP URLs or file paths",
+        "YOLO_MODEL_PATH": "Path to YOLOv8 weights file",
+        "CONFIDENCE_THRESHOLD": "0.60",
+        "FRAME_CONSISTENCY_COUNT": "5",
+        "BACKEND_PORT": "8000",
+        "FRONTEND_PORT": "5173",
+        "DATABASE_URL": "sqlite:///./safesense.db"
+    },
+    "fail_safe_mechanisms": {
+        "edge_processing": "AI runs locally — no internet required for detection",
+        "offline_alerts": "Local PA audio playback if FCM fails",
+        "manual_override": "Physical panic button on staff app triggers full alert manually",
+        "camera_failure": "Dashboard shows 'Camera Offline' with last known zone status",
+        "false_positive_prevention": "Multi-frame + multi-signal validation before any alert fires",
+        "redundancy": "If one camera misses, neighboring camera validation kicks in"
+    },
+    "evaluation_metrics": {
+        "accuracy": [
+            "Precision and recall per detection class",
+            "False positive rate < 5%"
+        ],
+        "performance": [
+            "Detection latency < 2 seconds",
+            "Alert dispatch < 1 second after detection",
+            "Dashboard update < 500ms via WebSocket"
+        ],
+        "reliability": [
+            "System uptime > 99%",
+            "Offline mode fallback functional",
+            "Manual override always available"
+        ]
+    },
+    "execution_phases": {
+        "phase_1": {
+            "name": "Core Detection",
+            "tasks": [
+                "Setup YOLOv8 on test video",
+                "Detect fire/smoke and person_down",
+                "Print output to console"
+            ],
+            "deliverable": "AI detects and labels events in terminal"
+        },
+        "phase_2": {
+            "name": "Smarter Detection",
+            "tasks": [
+                "Add 5-frame multi-frame validation",
+                "Integrate DeepSORT for guest tracking",
+                "Add crowd panic optical flow logic"
+            ],
+            "deliverable": "Stable detection with guest count per zone"
+        },
+        "phase_3": {
+            "name": "Backend + Alerts",
+            "tasks": [
+                "Build FastAPI with all routes",
+                "FCM push notification on detection",
+                "Role-based alert routing"
+            ],
+            "deliverable": "Phone receives push notification on event"
+        },
+        "phase_4": {
+            "name": "Dashboard + Voice",
+            "tasks": [
+                "Build React dashboard with WebSocket",
+                "Floor map with zone color coding",
+                "Voice assistant context-aware output"
+            ],
+            "deliverable": "Live dashboard updates + voice plays on event"
+        },
+        "phase_5": {
+            "name": "Killer Feature",
+            "tasks": [
+                "Smart evacuation route calculation",
+                "Animated route display on floor map",
+                "Checklist auto-generation"
+            ],
+            "deliverable": "Evacuation paths shown dynamically on map"
+        }
+    },
+    "hackathon_strategy": {
+        "current_score": "7.5/10",
+        "target_score": "9.0/10",
+        "differentiators": [
+            "Zero new hardware — works with existing CCTV",
+            "Voice-first coordination — staff don't need to look at screens",
+            "Role-based alerts — right info to right person",
+            "Smart evacuation routing — not just detection, full decision support",
+            "Offline-first — works even without internet"
+        ],
+        "demo_priority": "Working demo over full system",
+        "avoid": [
+            "Overengineering",
+            "Untested features in demo",
+            "Vague claims about AI accuracy"
+        ],
+        "judges_will_love": [
+            "Visual dashboard with live updates",
+            "Voice instruction playback",
+            "The evacuation route animation"
+        ]
+    }
+}
