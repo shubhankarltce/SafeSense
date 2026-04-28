@@ -130,19 +130,25 @@ app.include_router(evacuation.router, prefix="/api")
 
 # --- WebSocket Endpoint ---
 
+import asyncio
+
 @app.websocket("/ws/dashboard")
 async def websocket_dashboard(websocket: WebSocket):
-    """Establish a WebSocket connection for the live dashboard."""
-    await manager.connect(websocket)
+    print("🔥 WS ROUTE HIT")   # DEBUG
+
+    await websocket.accept()
+
+    print("✅ WS CONNECTED")   # DEBUG
+
     try:
-        # Keep the connection alive and listen for any client messages
         while True:
-            # Although we don't expect messages from the client in this design,
-            # awaiting receive_text() is necessary to keep the connection open.
-            await websocket.receive_text()
-    except WebSocketDisconnect:
-        manager.disconnect(websocket)
-        print(f"[WebSocket] Client disconnected.")
+            await websocket.send_json({
+                "type": "test",
+                "message": "SafeSense Live"
+            })
+            await asyncio.sleep(2)
+    except Exception as e:
+        print("❌ WS ERROR:", e)
 
 # --- Static Files and Root Endpoint ---
 
