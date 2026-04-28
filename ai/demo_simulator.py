@@ -1,106 +1,101 @@
-"""
-SafeSense — Demo Simulator
-Sends simulated detection events to the backend for demo/testing.
-Run this script to simulate a full emergency scenario.
-"""
-import asyncio
-import aiohttp
-import json
+import requests
 import time
-from datetime import datetime, timezone
+import random
 
-API_BASE = "http://localhost:8000"
+# --- Configuration ---
+BASE_URL = "http://localhost:8000"
 
-DEMO_SCENARIOS = [
-    {
-        "delay": 3,
-        "event": {
-            "zone": "Zone B",
-            "floor": "Floor 2",
-            "detection_type": "fire_smoke",
-            "confidence": 0.87,
-            "frame_count": 5,
-            "guest_count": 8,
-        },
-        "description": "🔥 Fire detected in Zone B, Floor 2",
-    },
-    {
-        "delay": 15,
-        "event": {
-            "zone": "Zone A",
-            "floor": "Floor 1",
-            "detection_type": "person_down",
-            "confidence": 0.73,
-            "frame_count": 30,
-            "guest_count": 12,
-        },
-        "description": "🚑 Person down in Zone A, Floor 1",
-    },
-    {
-        "delay": 25,
-        "event": {
-            "zone": "Zone D",
-            "floor": "Floor 2",
-            "detection_type": "crowd_panic",
-            "confidence": 0.81,
-            "frame_count": 10,
-            "guest_count": 6,
-        },
-        "description": "🚨 Crowd panic in Zone D, Floor 2",
-    },
-]
+# Health check endpoint
+HEALTH_CHECK_URL = f"{BASE_URL}/api/health"
 
+# Detection endpoint
+DETECTION_URL = f"{BASE_URL}/api/detection/"
 
-async def run_demo():
-    """Run the full demo scenario sequence."""
-    print("=" * 60)
-    print("  SafeSense — Demo Simulator")
-    print("  Sending simulated emergency events to backend")
-    print("=" * 60)
-    print()
+# List of possible zones for random alerts
+ZONES = ["zone_a", "zone_b", "zone_c", "zone_d", "zone_e", "zone_f"]
 
-    async with aiohttp.ClientSession() as session:
-        # Check backend health
-        try:
-            async with session.get(f"{API_BASE}/api/health") as resp:
-                if resp.status == 200:
-                    print("[✓] Backend is healthy")
-                else:
-                    print("[✗] Backend not responding. Start it first!")
-                    return
-        except aiohttp.ClientConnectorError:
-            print("[✗] Cannot connect to backend at localhost:8000")
-            print("    Run: uvicorn backend.main:app --reload --port 8000")
-            return
+# List of possible detection types
+DETECTION_TYPES = ["fire", "smoke", "fire", "smoke", "fire"] # Skewed towards fire
 
-        print()
-        print("[▶] Starting demo scenario...")
-        print()
+# --- Helper Functions ---
 
-        for i, scenario in enumerate(DEMO_SCENARIOS):
-            delay = scenario["delay"] if i > 0 else 2
-            print(f"[⏳] Waiting {delay}s before next event...")
-            await asyncio.sleep(delay)
+def check_backend_health():
+    """Check if the backend server is running and healthy."""
+    try:
+        response = requests.get(HEALTH_CHECK_URL, timeout=5)
+        if response.status_code == 200 and response.json().get("status") == "healthy":
+            print("?? Backend is healthy and ready.")
+            return True
+        else:
+            print(f"?? Backend is reachable but not healthy (Status: {response.status_code}). Response: {response.text}")
+            return False
+    except requests.ConnectionError:
+        print("?? Backend connection failed. Is the server running?")
+        return False
+    except requests.Timeout:
+        print("?? Backend health check timed out.")
+        return False
 
-            print(f"[→] {scenario['description']}")
+def trigger_detection(zone_id: str, detection_type: str):
+    """Send a detection event to the backend API."""
+    payload = {
+        "zone_id": zone_id,
+        "detection_type": detection_type
+    }
+    try:
+        response = requests.post(DETECTION_URL, json=payload, timeout=10)
+        if response.status_code == 200:
+            print(f"??  Successfully triggered '{detection_type}' alert in '{zone_id}'.")
+            print(f"??  Response: {response.json().get('message')}")
+        else:
+            print(f"??  Failed to trigger alert. Status: {response.status_code}, Response: {response.text}")
+    except requests.RequestException as e:
+        print(f"??  API request failed: {e}")
 
-            async with session.post(
-                f"{API_BASE}/api/detection/event",
-                json=scenario["event"],
-                headers={"Content-Type": "application/json"},
-            ) as resp:
-                result = await resp.json()
-                print(f"    Status: {result.get('status')}")
-                print(f"    Incident ID: {result.get('incident_id')}")
-                print(f"    Severity: {result.get('severity')}")
-                if result.get("voice_message"):
-                    print(f"    🔊 Voice: {result['voice_message']}")
-                print()
+# --- Main Simulation Logic ---
 
-        print("=" * 60)
-        print("  Demo complete! Check the dashboard for live updates.")
-        print("=" * 60)
+def run_simulation():
+    """Run the main AI detection simulation."""
+    print("=" * 50)
+    print("?? SafeSense AI Demo Simulator Initializing...")
+    print("=" * 50)
 
+    # 1. Wait for the backend to be ready
+    print("?? Waiting for backend server to become available...")
+    while not check_backend_health():
+        time.sleep(3)
+    
+    print("\n" + "-" * 50)
+
+    # 2. Trigger a specific, predictable incident for demonstration
+    print("?? Running initial scenario: Fire in Zone A (Lobby)")
+    trigger_detection("zone_a", "fire")
+    print("?? Initial scenario complete. Check the dashboard!")
+
+    print("\n" + "-" * 50)
+    print("?? Starting random event simulation loop (every 30-90s)...")
+    print("?? Press Ctrl+C to stop the simulator.")
+    print("-" * 50)
+
+    # 3. Loop to trigger random incidents periodically
+    try:
+        while True:
+            # Wait for a random interval before the next event
+            sleep_duration = random.randint(30, 90)
+            print(f"\n?? Next random event in {sleep_duration} seconds...")
+            time.sleep(sleep_duration)
+            
+            # Choose a random zone and detection type
+            random_zone = random.choice(ZONES)
+            random_type = random.choice(DETECTION_TYPES)
+            
+            print(f"?? Triggering new random event: '{random_type.upper()}' in '{random_zone}'")
+            trigger_detection(random_zone, random_type)
+
+    except KeyboardInterrupt:
+        print("\n?? Simulator stopped by user. Goodbye!")
+    except Exception as e:
+        print(f"?? An unexpected error occurred: {e}")
 
 if __name__ == "__main__":
-    asyncio.run(run_demo())
+    run_simulation()

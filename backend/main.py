@@ -2,8 +2,11 @@
 SafeSense — FastAPI Main Entry Point
 AI-powered real-time emergency detection and coordinated response system.
 """
+import os
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 from contextlib import asynccontextmanager
 
 from backend.database import init_db, SessionLocal
@@ -12,6 +15,12 @@ from backend.models.staff import Staff
 from backend.websocket.ws_manager import manager
 from backend.routers import detection, incidents, zones, alerts, staff, evacuation
 
+# --- Configuration & Constants ---
+
+# Define the path to the frontend directory, assuming it's at the root of the project
+FRONTEND_DIR = os.path.join(os.path.dirname(__file__), '..', 'frontend')
+
+# --- Database Seeding ---
 
 # Seed data for zones and staff
 SEED_ZONES = [
@@ -34,46 +43,62 @@ SEED_STAFF = [
     {"id": "staff_008", "name": "Kavita Joshi", "role": "security", "status": "idle", "contact": "+91-9876543217"},
 ]
 
-
 def seed_database():
-    """Seed database with initial zones and staff."""
+    """Seed database with initial zones and staff if the tables are empty."""
     db = SessionLocal()
     try:
-        # Seed zones if empty
         if db.query(Zone).count() == 0:
-            for z in SEED_ZONES:
-                db.add(Zone(**z))
-            print("[DB] Seeded zones")
+            print("[DB] Seeding zones...")
+            for z_data in SEED_ZONES:
+                db.add(Zone(**z_data))
+            db.commit()
+            print("[DB] Zones seeded.")
+        else:
+            print("[DB] Zones table already populated.")
 
-        # Seed staff if empty
         if db.query(Staff).count() == 0:
-            for s in SEED_STAFF:
-                db.add(Staff(**s))
-            print("[DB] Seeded staff")
-
-        db.commit()
+            print("[DB] Seeding staff...")
+            for s_data in SEED_STAFF:
+                db.add(Staff(**s_data))
+            db.commit()
+            print("[DB] Staff seeded.")
+        else:
+            print("[DB] Staff table already populated.")
+            
     finally:
         db.close()
 
+# --- FastAPI Application Lifecycle ---
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Application startup and shutdown."""
+    """Handles application startup and shutdown events."""
     print("=" * 50)
     print("  SafeSense — Starting Up")
     print("  AI-Powered Emergency Response System")
     print("=" * 50)
+    
+    # Initialize database schema
     init_db()
+    print("[OK] Database schema initialized.")
+
+    # Seed the database with initial data
     seed_database()
-    print("[OK] Database initialized and seeded")
-    print("[OK] WebSocket manager ready")
-    print("[OK] API routes registered")
+    
+    print("[OK] WebSocket manager ready.")
+    print("[OK] API routes registered.")
+    print(f"[OK] Serving frontend from: {os.path.abspath(FRONTEND_DIR)}")
     print(f"[OK] Server running at http://localhost:8000")
     print(f"[OK] API docs at http://localhost:8000/docs")
     print("=" * 50)
+    
     yield
-    print("[SHUTDOWN] SafeSense shutting down...")
+    
+    print("\n" + "=" * 50)
+    print("[SHUTDOWN] SafeSense is shutting down...")
+    print("=" * 50)
 
+# --- FastAPI App Instantiation ---
 
 app = FastAPI(
     title="SafeSense API",
@@ -82,48 +107,55 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# CORS — allow frontend
+# --- Middleware ---
+
+# Enable CORS for all origins, which is useful for development
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=["*"],  # Allows all origins
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["*"], # Allows all methods (GET, POST, etc.)
+    allow_headers=["*"], # Allows all headers
 )
 
-# Register routers
-app.include_router(detection.router)
-app.include_router(incidents.router)
-app.include_router(zones.router)
-app.include_router(alerts.router)
-app.include_router(staff.router)
-app.include_router(evacuation.router)
+# --- API Routers ---
 
+# Include all the API endpoint routers from the 'routers' directory
+app.include_router(detection.router, prefix="/api")
+app.include_router(incidents.router, prefix="/api")
+app.include_router(zones.router, prefix="/api")
+app.include_router(alerts.router, prefix="/api")
+app.include_router(staff.router, prefix="/api")
+app.include_router(evacuation.router, prefix="/api")
 
-# WebSocket endpoint for live dashboard
+# --- WebSocket Endpoint ---
+
 @app.websocket("/ws/dashboard")
 async def websocket_dashboard(websocket: WebSocket):
-    """WebSocket connection for live dashboard updates."""
+    """Establish a WebSocket connection for the live dashboard."""
     await manager.connect(websocket)
     try:
+        # Keep the connection alive and listen for any client messages
         while True:
-            # Keep connection alive, receive any client messages
-            data = await websocket.receive_text()
-            # Echo back for keep-alive or handle client commands
+            # Although we don't expect messages from the client in this design,
+            # awaiting receive_text() is necessary to keep the connection open.
+            await websocket.receive_text()
     except WebSocketDisconnect:
         manager.disconnect(websocket)
+        print(f"[WebSocket] Client disconnected.")
 
+# --- Static Files and Root Endpoint ---
+
+# Mount the 'static' directory from the frontend to serve CSS, JS, etc.
+app.mount("/static", StaticFiles(directory=FRONTEND_DIR), name="static")
 
 @app.get("/")
-async def root():
-    return {
-        "system": "SafeSense",
-        "version": "1.0.0",
-        "status": "operational",
-        "tagline": "AI-powered real-time emergency detection and coordinated response",
-    }
-
+async def read_index():
+    """Serve the main index.html file for the root URL."""
+    index_path = os.path.join(FRONTEND_DIR, "index.html")
+    return FileResponse(index_path)
 
 @app.get("/api/health")
-async def health():
-    return {"status": "healthy", "service": "safesense-backend"}
+async def health_check():
+    """A simple health check endpoint to confirm the API is running."""
+    return {"status": "healthy", "service": "safesense-backend", "version": "1.0.0"}
