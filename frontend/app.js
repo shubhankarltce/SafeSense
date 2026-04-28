@@ -1,7 +1,7 @@
 document.addEventListener('DOMContentLoaded', () => {
     console.log('SafeSense Dashboard Initializing...');
 
-    const wsUrl = "wss://safesense-7ckn.onrender.com/ws/dashboard";
+    const wsUrl = "wss://safesense-7ckn.onrender.com";
 
     let socket;
 
