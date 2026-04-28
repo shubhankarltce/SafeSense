@@ -109,10 +109,10 @@ app = FastAPI(
 
 # --- Middleware ---
 
-# Enable CORS for all origins, which is useful for development
+# Update the CORS policy to allow the new frontend domain
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Allows all origins
+    allow_origins=["http://localhost:8000", "https://safesense.replit.app", "https://safesense-7ckn.onrender.com"],
     allow_credentials=True,
     allow_methods=["*"], # Allows all methods (GET, POST, etc.)
     allow_headers=["*"], # Allows all headers
